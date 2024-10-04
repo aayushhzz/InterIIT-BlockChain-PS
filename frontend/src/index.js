@@ -3,13 +3,15 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { Auth0Provider } from "@auth0/auth0-react";
+const dotenv = require("dotenv");
+dotenv.config();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
     <Auth0Provider
-      domain="dev-mi4dbc0zjxcib7p6.us.auth0.com"
-      clientId="KuU3NQq83pEj6N5ylUv0gv2nOcbxFMF4"
+      domain = {process.env.domain}
+      clientId={process.env.clientId}
       authorizationParams={{
         redirect_uri: window.location.origin,
       }}

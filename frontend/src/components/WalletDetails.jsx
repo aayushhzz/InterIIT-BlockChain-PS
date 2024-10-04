@@ -69,10 +69,6 @@ const WalletDetails = () => {
     }
   };
 
-  useEffect(() => {
-    // Automatically try to fetch wallet details when the component mounts
-    getWalletDetails();
-  }, []);
 
   return (
     <div className="wallet-details-container flex flex-col items-center p-6 bg-white shadow-lg rounded-lg max-w-lg mx-auto mt-10">
