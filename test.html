@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Price Graph</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .chart {
+            margin: 50px;
+        }
+        .axis-label {
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Random Coin Price Chart</h1>
+    <div class="chart"></div>
+
+    <script>
+        // Generate random data for 24 hours (one data point per hour)
+        const randomPriceData = [];
+        const currentTime = new Date();
+
+        for (let i = 0; i < 24; i++) {
+            const time = new Date(currentTime.getTime() - i * 60 * 60 * 1000); // Time decrementing by hour
+            const price = 100 + Math.random() * 10; // Random price between 100 and 110
+            randomPriceData.push({ time, price });
+        }
+
+        // Reverse the array to get ascending time order
+        randomPriceData.reverse();
+
+        // Set up dimensions for the graph
+        const margin = { top: 20, right: 30, bottom: 30, left: 50 };
+        const width = 800 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        // Create an SVG canvas
+        const svg = d3.select(".chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Set up the scales
+        const xScale = d3.scaleTime()
+            .domain(d3.extent(randomPriceData, d => d.time))
+            .range([0, width]);
+
+        const yScale = d3.scaleLinear()
+            .domain([d3.min(randomPriceData, d => d.price) - 5, d3.max(randomPriceData, d => d.price) + 5])
+            .range([height, 0]);
+
+        // Create the line generator
+        const line = d3.line()
+            .x(d => xScale(d.time))
+            .y(d => yScale(d.price));
+
+        // Add the line to the SVG
+        svg.append("path")
+            .datum(randomPriceData)
+            .attr("fill", "none")
+            .attr("stroke", "steelblue")
+            .attr("stroke-width", 2)
+            .attr("d", line);
+
+        // Add the X Axis
+        svg.append("g")
+            .attr("transform", `translate(0,${height})`)
+            .call(d3.axisBottom(xScale).tickFormat(d3.timeFormat("%H:%M"))); // Format time as HH:MM
+
+        // Add the Y Axis
+        svg.append("g")
+            .call(d3.axisLeft(yScale));
+
+        // Add X Axis Label
+        svg.append("text")
+            .attr("text-anchor", "end")
+            .attr("x", width / 2 + 20)
+            .attr("y", height + 30)
+            .attr("class", "axis-label")
+            .text("Time (Last 24 Hours)");
+
+        // Add Y Axis Label
+        svg.append("text")
+            .attr("text-anchor", "end")
+            .attr("transform", "rotate(-90)")
+            .attr("y", -margin.left + 10)
+            .attr("x", -height / 2 + 20)
+            .attr("class", "axis-label")
+            .text("Price (USD)");
+    </script>
+
+</body>
+</html>
