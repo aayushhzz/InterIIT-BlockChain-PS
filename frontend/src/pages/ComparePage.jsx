@@ -1,8 +1,30 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Navbar from "../components/Navbar";
-import Web3 from "web3"; // Correct import of Web3
+import Web3 from "web3";
 import axios from "axios";
-const d3 = require("d3");
+import {
+  Chart,
+  LineController,
+  LineElement,
+  PointElement,
+  LinearScale,
+  Title,
+  CategoryScale,
+  TimeScale,
+} from "chart.js";
+import "chartjs-adapter-luxon"; // Import the Luxon adapter for time scaling
+
+// Register the required Chart.js components
+Chart.register(
+  LineController,
+  LineElement,
+  PointElement,
+  LinearScale,
+  CategoryScale,
+  Title,
+  TimeScale
+);
+
 const web3 = new Web3("https://rpc.ankr.com/eth_sepolia");
 
 const ComparePage = () => {
@@ -15,208 +37,168 @@ const ComparePage = () => {
   const [coinOne, setCoinOne] = useState(tokenPriceList[0]);
   const [coinTwo, setCoinTwo] = useState(tokenPriceList[0]);
   const [Compare, setCompare] = useState(false);
-  const aggregatorV3InterfaceABI = [
-    {
-      inputs: [],
-      name: "decimals",
-      outputs: [{ internalType: "uint8", name: "", type: "uint8" }],
-      stateMutability: "view",
-      type: "function",
-    },
-    {
-      inputs: [],
-      name: "latestRoundData",
-      outputs: [
-        { internalType: "uint80", name: "roundId", type: "uint80" },
-        { internalType: "int256", name: "answer", type: "int256" },
-        { internalType: "uint256", name: "startedAt", type: "uint256" },
-        { internalType: "uint256", name: "updatedAt", type: "uint256" },
-        { internalType: "uint80", name: "answeredInRound", type: "uint80" },
-      ],
-      stateMutability: "view",
-      type: "function",
-    },
-  ];
-  const priceFeedAddresses = {
-    ETH: "0x694AA1769357215DE4FAC081bf1f309aDC325306",
-    BTC: "0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43",
-    LINK: "0xc59E3633BAAC79493d908e63626716e204A45EdF",
-    USDC: "0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E",
-  };
-  const fetchTokenPriceList = async () => {
-    try {
-      const updatedTokenPrices = await Promise.all(
-        tokenPriceList.map(async (token) => {
-          if (token.name != coinOne.name && token.name != coinTwo.name)
-            return token;
-          const priceFeed = await new web3.eth.Contract(
-            aggregatorV3InterfaceABI,
-            priceFeedAddresses[token.symbol]
-          );
-
-          const roundData = await priceFeed.methods.latestRoundData().call();
-          const decimals = await priceFeed.methods.decimals().call();
-          const adjustedPrice =
-            Number(roundData.answer) / 10 ** Number(decimals);
-          let marketcap, volume, change, lastupdated;
-          let response = await axios.get(
-            `https://api.coingecko.com/api/v3/simple/price?ids=${token.gecko}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true`,
-            {
-              headers: {
-                "Content-Type": "application/json",
-              },
-            }
-          );
-
-          let data = response.data;
-          marketcap = data[token.gecko].usd_market_cap;
-          volume = data[token.gecko].usd_24h_vol;
-          change = data[token.gecko].usd_24h_change;
-          lastupdated = data[token.gecko].last_updated_at;
-          lastupdated = new Date(lastupdated);
-          lastupdated =
-            lastupdated.getDate() +
-            "/" +
-            (lastupdated.getMonth() + 1) +
-            " " +
-            lastupdated.getHours() +
-            ":" +
-            lastupdated.getMinutes() +
-            ":" +
-            lastupdated.getSeconds();
-          lastupdated = lastupdated.toString();
-          return {
-            ...token,
-            price: `$${adjustedPrice.toFixed(2)}`,
-            marketcap: marketcap.toFixed(2),
-            volume: volume.toFixed(2),
-            change: change.toFixed(2),
-            lastupdated: lastupdated,
-          };
-        })
-      );
-      await setTokenPriceList(updatedTokenPrices);
-      await setCoinOne(tokenPriceList[coinOne.id - 1]);
-      await setCoinTwo(tokenPriceList[coinTwo.id - 1]);
-    } catch (error) {
-      console.error("Error fetching token prices: ", error.message);
-    }
-  };
+  const chartRef = useRef(null);
+  const [cache, setCache] = useState({});
+  const [tableData, setTableData] = useState(null); // State for table data
 
   const fetchTokenData = async (token) => {
-    let randomPriceData = [];
-    let url = `https://api.coingecko.com/api/v3/coins/${token.gecko}/market_chart?vs_currency=usd&days=1`;
+    const cacheKey = `${token.symbol}_prices`;
+    const cacheEntry = cache[cacheKey];
+    const cacheTTL = 600000; // 10 minutes
+
+    // If cached data is available and not expired, use it
+    if (cacheEntry && Date.now() - cacheEntry.timestamp < cacheTTL) {
+      return cacheEntry.data;
+    }
+
+    let priceData = [];
+    const url = `https://api.coingecko.com/api/v3/coins/${token.gecko}/market_chart?vs_currency=usd&days=1`;
     const response = await axios.get(url, {
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
     });
+
     response.data.prices.map((price) => {
-      randomPriceData.push({ time: new Date(price[0]), price: price[1] });
+      priceData.push({ time: new Date(price[0]), price: price[1] });
     });
-    return randomPriceData;
+
+    // Cache the fetched data
+    setCache((prevCache) => ({
+      ...prevCache,
+      [cacheKey]: { data: priceData, timestamp: Date.now() },
+    }));
+
+    return priceData;
   };
-  const drawGraph = (colour, randomPriceData) => {
-    const margin = { top: 20, right: 30, bottom: 30, left: 50 };
-    const width = 800 - margin.left - margin.right;
-    const height = 400 - margin.top - margin.bottom;
 
-    const svg = d3
-      .select(`.compareGraph`)
-      .attr("width", width + margin.left + margin.right)
-      .attr("height", height + margin.top + margin.bottom)
-      .append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
+  const fetchTableData = async (token) => {
+    const cacheKey = `${token.symbol}_table`;
+    const cacheEntry = cache[cacheKey];
+    const cacheTTL = 600000; // 10 minutes
 
-    const xScale = d3
-      .scaleTime()
-      .domain(d3.extent(randomPriceData, (d) => d.time))
-      .range([0, width]);
+    // If cached data is available and not expired, use it
+    if (cacheEntry && Date.now() - cacheEntry.timestamp < cacheTTL) {
+      return cacheEntry.data;
+    }
 
-    const yScale = d3
-      .scaleLinear()
-      .domain([
-        d3.min(randomPriceData, (d) => d.price) - 5,
-        d3.max(randomPriceData, (d) => d.price) + 5,
-      ])
-      .range([height, 0]);
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${token.gecko}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
+    const response = await axios.get(url);
+    const { usd_market_cap, usd_24h_vol, usd_24h_change } =
+      response.data[token.gecko];
 
-    const line = d3
-      .line()
-      .x((d) => xScale(d.time))
-      .y((d) => yScale(d.price));
+    const tableData = {
+      price: response.data[token.gecko].usd,
+      marketCap: usd_market_cap,
+      volume: usd_24h_vol,
+      change24h: usd_24h_change,
+    };
 
-    // Add the line chart
-    svg
-      .append("path")
-      .datum(randomPriceData)
-      .attr("fill", "none")
-      .attr("stroke", colour)
-      .attr("stroke-width", 2)
-      .attr("d", line);
+    // Cache the fetched table data
+    setCache((prevCache) => ({
+      ...prevCache,
+      [cacheKey]: { data: tableData, timestamp: Date.now() },
+    }));
 
-    // Add the X axis
-    svg
-      .append("g")
-      .attr("transform", `translate(0,${height})`)
-      .call(
-        d3.axisBottom(xScale).tickFormat((d) => {
-          return d3.timeFormat("%H:%M")(d);
-        })
-      );
+    return tableData;
+  };
 
-    // Add the Y axis but remove ticks and labels
-    svg
-      .append("g")
-      .call(d3.axisLeft(yScale))
-      .call((g) => g.selectAll(".tick").remove());
-    svg
-      .append("text")
-      .attr("text-anchor", "end")
-      .attr("x", width / 2 + 20)
-      .attr("y", height + 30)
-      .attr("class", "axis-label")
-      .text(() => "Time");
+  const compareTableData = async (token1, token2) => {
+    const tableDataOne = await fetchTableData(token1);
+    const tableDataTwo = await fetchTableData(token2);
 
-    svg
-      .append("text")
-      .attr("text-anchor", "end")
-      .attr("transform", "rotate(-90)")
-      .attr("y", -margin.left + 40)
-      .attr("x", -height / 2 + 40)
-      .attr("class", "axis-label")
-      .text("Price Trend (USD)");
+    // Set table data in state to trigger re-render
+    setTableData({ tableDataOne, tableDataTwo });
   };
 
   const generateGraph = async (token1, token2) => {
-    let randomPriceData = [];
     if (!Compare) setCompare(true);
-    d3.select(`.compareGraph`).selectAll("*").remove();
-    await fetchTokenData(token1).then((data) => {
-      randomPriceData = data;
-    });
-    drawGraph("steelblue", randomPriceData);
-    await fetchTokenData(token2).then((data) => {
-      randomPriceData = data;
-    });
-    drawGraph("red", randomPriceData);
-    const svg = d3.select(`.compareGraph`);
-    svg
-      .append("text")
-      .attr("text-anchor", "end")
-      .attr("x", 580)
-      .attr("y", 580)
-      .attr("class", "axis-label")
-      .text(`red: ${token2.name}`);
-    svg
-      .append("text")
-      .attr("text-anchor", "end")
-      .attr("x", 600)
-      .attr("y", 600)
-      .attr("class", "axis-label")
-      .text(`blue: ${token1.name}`);
-    fetchTokenPriceList();
+
+    const priceDataOne = await fetchTokenData(token1);
+    const priceDataTwo = await fetchTokenData(token2);
+
+    const datasetOne = {
+      label: token1.name,
+      data: priceDataOne.map((data) => ({
+        x: data.time,
+        y: data.price,
+      })),
+      borderColor: "blue",
+      fill: false,
+    };
+
+    const datasetTwo = {
+      label: token2.name,
+      data: priceDataTwo.map((data) => ({
+        x: data.time,
+        y: data.price,
+      })),
+      borderColor: "red",
+      fill: false,
+    };
+
+    const chartConfig = {
+      type: "line",
+      data: {
+        datasets: [datasetOne, datasetTwo],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            type: "time",
+            time: {
+              unit: "minute",
+              tooltipFormat: "HH:mm",
+            },
+            title: {
+              display: true,
+              text: "Time",
+            },
+          },
+          y: {
+            title: {
+              display: true,
+              text: "Price (USD)",
+            },
+            beginAtZero: false,
+          },
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                let label = context.dataset.label || "";
+                if (label) {
+                  label += ": ";
+                }
+                if (context.parsed.y !== null) {
+                  label += "$" + context.parsed.y.toFixed(2);
+                }
+                return label;
+              },
+            },
+          },
+        },
+      },
+    };
+
+    // Destroy the old chart instance before creating a new one
+    if (chartRef.current) {
+      chartRef.current.destroy();
+    }
+
+    // Ensure the canvas is available before accessing its context
+    const ctx = document.getElementById("compareChart");
+    if (ctx) {
+      chartRef.current = new Chart(ctx.getContext("2d"), chartConfig);
+    }
   };
+
+  useEffect(() => {
+    if (Compare) {
+      compareTableData(coinOne, coinTwo);
+    }
+  }, [coinOne, coinTwo, Compare]);
+
   return (
     <>
       <Navbar />
@@ -269,52 +251,57 @@ const ComparePage = () => {
           >
             Compare
           </button>
-          <svg className="compareGraph"></svg>
-          {Compare && (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm table-auto">
-                <thead className="bg-gray-200">
-                  <tr>
-                    <th className="px-4 py-2 font-medium">Token</th>
-                    <th className="px-4 py-2 font-medium">Current Price</th>
-                    <th className="px-4 py-2 font-medium">Market Cap</th>
-                    <th className="px-4 py-2 font-medium">Volume</th>
-                    <th className="px-4 py-2 font-medium">Change (24 Hours)</th>
+          <div
+            className="chart-container"
+            style={{ width: "800px", height: "400px" }}
+          >
+            <canvas id="compareChart"></canvas>
+          </div>
+          {tableData && (
+            <div className="flex justify-center">
+              <table className="min-w-[50%] border-collapse shadow-lg mt-4">
+                <thead>
+                  <tr className="bg-blue-500 text-white">
+                    <th className="border p-2 text-center">Metric</th>
+                    <th className="border p-2 text-center">{coinOne.name}</th>
+                    <th className="border p-2 text-center">{coinTwo.name}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td className="px-4 py-2">
-                      {coinOne.name || "Fetching..."}
+                  <tr className="bg-gray-100 hover:bg-gray-200 transition duration-300">
+                    <td className="border p-2 text-center">Price</td>
+                    <td className="border p-2 text-center">
+                      ${tableData.tableDataOne.price}
                     </td>
-                    <td className="px-4 py-2">
-                      {coinOne.price || "Fetching..."}
-                    </td>
-                    <td className="px-4 py-2">
-                      ${coinOne.marketcap || "Fetching..."}
-                    </td>
-                    <td className="px-4 py-2">
-                      ${coinOne.volume || "Fetching..."}
-                    </td>
-                    <td className="px-4 py-2">
-                      {coinOne.change || "Fetching..."}%
+                    <td className="border p-2 text-center">
+                      ${tableData.tableDataTwo.price}
                     </td>
                   </tr>
-                  <tr>
-                    <td className="px-4 py-2">
-                      {coinTwo.name || "Fetching..."}
+                  <tr className="bg-white hover:bg-gray-200 transition duration-300">
+                    <td className="border p-2 text-center">Market Cap</td>
+                    <td className="border p-2 text-center">
+                      ${tableData.tableDataOne.marketCap}
                     </td>
-                    <td className="px-4 py-2">
-                      {coinTwo.price || "Fetching..."}
+                    <td className="border p-2 text-center">
+                      ${tableData.tableDataTwo.marketCap}
                     </td>
-                    <td className="px-4 py-2">
-                      ${coinTwo.marketcap || "Fetching..."}
+                  </tr>
+                  <tr className="bg-gray-100 hover:bg-gray-200 transition duration-300">
+                    <td className="border p-2 text-center">24h Volume</td>
+                    <td className="border p-2 text-center">
+                      ${tableData.tableDataOne.volume}
                     </td>
-                    <td className="px-4 py-2">
-                      ${coinTwo.volume || "Fetching..."}
+                    <td className="border p-2 text-center">
+                      ${tableData.tableDataTwo.volume}
                     </td>
-                    <td className="px-4 py-2">
-                      {coinTwo.change || "Fetching..."}%
+                  </tr>
+                  <tr className="bg-white hover:bg-gray-200 transition duration-300">
+                    <td className="border p-2 text-center">24h Change</td>
+                    <td className="border p-2 text-center">
+                      {tableData.tableDataOne.change24h}%
+                    </td>
+                    <td className="border p-2 text-center">
+                      {tableData.tableDataTwo.change24h}%
                     </td>
                   </tr>
                 </tbody>

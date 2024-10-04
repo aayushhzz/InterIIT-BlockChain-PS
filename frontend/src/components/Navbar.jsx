@@ -3,7 +3,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 
 
 const Navbar = () => {
-  const { user, isAuthenticated,loginWithRedirect,logout} = useAuth0();
+  const { user, isAuthenticated,loginWithPopup,logout} = useAuth0();
   const [walletAddress, setWalletAddress] = useState("");
   const handleConnectWallet = () => {
     if(typeof window !== "undefined" && typeof window.ethereum !== "undefined"){
@@ -65,10 +65,17 @@ const Navbar = () => {
             : (<button
               className="bg-green-500 text-white hover:bg-green-600 rounded-md px-4 py-2"
               type='button'
-              onClick={() => loginWithRedirect()}
+              onClick={() => loginWithPopup()}
             >
               Login
             </button>)}
+            {isAuthenticated && user.picture && (
+              <img
+                src={user.picture}
+                alt="Profile"
+                className="w-8 h-8 rounded-full ml-2"
+              />
+            )}
         </form>
       </div>
     </div>
