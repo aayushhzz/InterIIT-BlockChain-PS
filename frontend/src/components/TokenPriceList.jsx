@@ -196,7 +196,7 @@ const TokenPriceList = () => {
       newHours[token.id - 1] = !isHourly;
       return newHours;
     });
-    setButtonText(isHourly ? "Show Weekly Data" : "Show Hourly Data");
+    setButtonText(isHourly ? "Show Hourly Data" : "Show Weekly Data");
     generateGraph(token, !isHourly);
   };
 
